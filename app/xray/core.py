@@ -257,7 +257,7 @@ def _stream(ib: XrayInbound, opts: dict) -> dict:
         s["realitySettings"] = {
             "target": opts.get("target") or f"{opts['sni']}:443",
             "serverNames": [opts["sni"]],
-            "privateKey": opts["private_key"],
+            "privateKey": opts.get("private_key", ""),
             "shortIds": sorted({"", opts.get("short_id", "")}),
         }
     elif ib.security == "tls":

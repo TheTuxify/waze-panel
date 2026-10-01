@@ -276,6 +276,7 @@ def test_clash_subscription_and_endpoints():
                 port=443,
                 options=json.dumps({
                     "sni": "speedtest.net",
+                    "private_key": "fake-priv-key-123",
                     "public_key": "fake-pub-key-123",
                     "short_id": "0123456789abcdef",
                     "path": "/clash-ws",
@@ -327,11 +328,21 @@ def test_clash_subscription_and_endpoints():
         assert res_default.status_code == 200
         assert "text/plain" in res_default.headers.get("content-type", "")
 
-        # 4. /sub/{token} subscription web page
-        res_page = client.get(f"/sub/{user.token}")
+        # 4. /sub/{token} subscription web page (browser)
+        res_page = client.get(f"/sub/{user.token}", headers={"accept": "text/html,application/xhtml+xml"})
         assert res_page.status_code == 200
         assert "لینک اشتراک Clash / Stash / Mihomo" in res_page.text
         assert "FlClash" in res_page.text
+
+        # 5. /sub/{token} with v2rayNG User-Agent (returns base64 links)
+        res_sub_v2ray = client.get(f"/sub/{user.token}", headers={"user-agent": "v2rayNG/1.8.5"})
+        assert res_sub_v2ray.status_code == 200
+        assert "text/plain" in res_sub_v2ray.headers.get("content-type", "")
+
+        # 6. /sub/{token} with Clash User-Agent (returns Clash YAML)
+        res_sub_clash = client.get(f"/sub/{user.token}", headers={"user-agent": "ClashforWindows/0.20.39"})
+        assert res_sub_clash.status_code == 200
+        assert "text/yaml" in res_sub_clash.headers.get("content-type", "")
     finally:
         db.close()
 

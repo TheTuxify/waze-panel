@@ -24,6 +24,38 @@ def _get_user_or_404(token: str, db: Session) -> VpnUser:
 @router.get("/sub/{token}")
 def subscription_page(token: str, request: Request, db: Session = Depends(get_db)):
     user = _get_user_or_404(token, db)
+    ua = request.headers.get("user-agent", "").lower()
+    accept = request.headers.get("accept", "").lower()
+
+    # Detect if requested directly by a VPN / Proxy client app (v2ray, clash, sing-box, etc.)
+    client_signatures = (
+        "v2ray", "v2fly", "xray", "clash", "stash", "meta", "mihomo", "flclash",
+        "sing-box", "sfa", "sfm", "nekobox", "matsuri", "shadowrocket",
+        "quantumult", "surge", "loon", "streisand", "v2box", "foxray",
+        "surfboard", "okhttp", "go-http-client", "dart", "curl", "wget",
+    )
+    is_client = (
+        any(k in ua for k in client_signatures)
+        or ("text/html" not in accept and any(k in accept for k in ("*/*", "application/", "text/plain", "text/yaml")))
+        or request.query_params.get("format") in ("clash", "xray")
+    )
+
+    # If it is a client app requesting the subscription link directly:
+    if is_client and not ("text/html" in accept and not any(k in ua for k in ("v2ray", "clash", "stash", "meta", "mihomo", "flclash", "sing-box"))):
+        is_clash = (
+            any(k in ua for k in ("clash", "stash", "meta", "mihomo", "flclash"))
+            or request.query_params.get("format") == "clash"
+        )
+        if is_clash and user.xray_enabled:
+            body, headers = xray_links.clash_subscription(db, user)
+            return Response(content=body, media_type="text/yaml; charset=utf-8", headers=headers)
+
+        if user.xray_enabled:
+            body, headers = xray_links.subscription(db, user)
+            return PlainTextResponse(body, headers=headers)
+
+        if user.openvpn_enabled:
+            return subscription_download(token, "udp", db)
 
     status_label = user.status_label()
 
