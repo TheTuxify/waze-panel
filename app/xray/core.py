@@ -296,6 +296,13 @@ def build_config(db: Session) -> dict:
     return {
         "log": {"loglevel": "warning", "access": "none"},
         "api": {"tag": "api", "listen": f"127.0.0.1:{settings.XRAY_API_PORT}", "services": ["HandlerService", "StatsService"]},
+        "dns": {
+            "servers": [
+                "1.1.1.1",
+                "8.8.8.8",
+                "localhost",
+            ]
+        },
         "stats": {},
         "policy": {
             "levels": {

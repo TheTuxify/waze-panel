@@ -21,44 +21,41 @@ def _get_user_or_404(token: str, db: Session) -> VpnUser:
     return user
 
 
-@router.get("/sub/{token}")
-def subscription_page(token: str, request: Request, db: Session = Depends(get_db)):
-    user = _get_user_or_404(token, db)
+def _is_browser_request(request: Request) -> bool:
+    fmt = request.query_params.get("format", "").lower()
+    if fmt in ("xray", "clash", "b64", "base64", "raw"):
+        return False
+    if fmt in ("web", "html"):
+        return True
+
     ua = request.headers.get("user-agent", "").lower()
     accept = request.headers.get("accept", "").lower()
 
-    # Detect if requested directly by a VPN / Proxy client app (v2ray, clash, sing-box, etc.)
+    # Proxy clients / apps, mobile VMs, and command-line download tools never get HTML
     client_signatures = (
         "v2ray", "v2fly", "xray", "clash", "stash", "meta", "mihomo", "flclash",
         "sing-box", "sfa", "sfm", "nekobox", "matsuri", "shadowrocket",
         "quantumult", "surge", "loon", "streisand", "v2box", "foxray",
-        "surfboard", "okhttp", "go-http-client", "dart", "curl", "wget",
+        "surfboard", "okhttp", "dalvik", "go-http-client", "dart",
+        "curl", "wget", "python-requests", "httpclient", "postman", "cfnetwork",
     )
-    is_client = (
-        any(k in ua for k in client_signatures)
-        or ("text/html" not in accept and any(k in accept for k in ("*/*", "application/", "text/plain", "text/yaml")))
-        or request.query_params.get("format") in ("clash", "xray")
-    )
+    if any(sig in ua for sig in client_signatures):
+        return False
 
-    # If it is a client app requesting the subscription link directly:
-    if is_client and not ("text/html" in accept and not any(k in ua for k in ("v2ray", "clash", "stash", "meta", "mihomo", "flclash", "sing-box"))):
-        is_clash = (
-            any(k in ua for k in ("clash", "stash", "meta", "mihomo", "flclash"))
-            or request.query_params.get("format") == "clash"
-        )
-        if is_clash and user.xray_enabled:
-            body, headers = xray_links.clash_subscription(db, user)
-            return Response(content=body, media_type="text/yaml; charset=utf-8", headers=headers)
+    sec_dest = request.headers.get("sec-fetch-dest", "").lower()
+    sec_mode = request.headers.get("sec-fetch-mode", "").lower()
+    if sec_dest == "document" or sec_mode == "navigate":
+        return True
 
-        if user.xray_enabled:
-            body, headers = xray_links.subscription(db, user)
-            return PlainTextResponse(body, headers=headers)
+    # Any client specifically asking for HTML that is not a known proxy client
+    if "text/html" in accept:
+        return True
 
-        if user.openvpn_enabled:
-            return subscription_download(token, "udp", db)
+    return False
 
+
+def _render_subscription_html(token: str, request: Request, user: VpnUser, db: Session):
     status_label = user.status_label()
-
     usage_percent = None
     if user.data_limit_bytes:
         usage_percent = min(100, round((user.data_used_bytes / user.data_limit_bytes) * 100, 1))
@@ -79,6 +76,39 @@ def subscription_page(token: str, request: Request, db: Session = Depends(get_db
             "clash_sub": f"{settings.public_base_url}/sub/{token}/clash",
         },
     )
+
+
+@router.get("/sub/{token}")
+def subscription_page(token: str, request: Request, db: Session = Depends(get_db)):
+    user = _get_user_or_404(token, db)
+
+    if _is_browser_request(request):
+        return _render_subscription_html(token, request, user, db)
+
+    ua = request.headers.get("user-agent", "").lower()
+    is_clash = (
+        any(k in ua for k in ("clash", "stash", "meta", "mihomo", "flclash"))
+        or request.query_params.get("format") == "clash"
+    )
+    if is_clash and user.xray_enabled:
+        body, headers = xray_links.clash_subscription(db, user)
+        return Response(content=body, media_type="text/yaml; charset=utf-8", headers=headers)
+
+    if user.xray_enabled:
+        body, headers = xray_links.subscription(db, user)
+        return PlainTextResponse(body, headers=headers)
+
+    if user.openvpn_enabled:
+        return subscription_download(token, "udp", db)
+
+    return _render_subscription_html(token, request, user, db)
+
+
+@router.get("/sub/{token}/web")
+def subscription_web(token: str, request: Request, db: Session = Depends(get_db)):
+    """Explicitly render the web dashboard for any client/browser."""
+    user = _get_user_or_404(token, db)
+    return _render_subscription_html(token, request, user, db)
 
 
 @router.get("/sub/{token}/manifest.webmanifest")

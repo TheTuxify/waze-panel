@@ -245,7 +245,7 @@ def test_clash_subscription_and_endpoints():
     import json
     import yaml
     from app.models import VpnUser, XrayInbound
-    from app.xray import links as xray_links
+    from app.xray import links as xray_links, core as xray_core
 
     init_db()
     db = SessionLocal()
@@ -343,6 +343,30 @@ def test_clash_subscription_and_endpoints():
         res_sub_clash = client.get(f"/sub/{user.token}", headers={"user-agent": "ClashforWindows/0.20.39"})
         assert res_sub_clash.status_code == 200
         assert "text/yaml" in res_sub_clash.headers.get("content-type", "")
+
+        # 7. /sub/{token} with Dalvik User-Agent and Accept: text/html (Android v2rayNG behavior)
+        res_sub_dalvik = client.get(
+            f"/sub/{user.token}",
+            headers={
+                "user-agent": "Dalvik/2.1.0 (Linux; U; Android 14; Pixel 7 Build/UQ1A.240105.004)",
+                "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            },
+        )
+        assert res_sub_dalvik.status_code == 200
+        assert "text/plain" in res_sub_dalvik.headers.get("content-type", "")
+        assert not res_sub_dalvik.text.strip().startswith("<!DOCTYPE")
+
+        # 8. /sub/{token}/web always returns HTML
+        res_web = client.get(f"/sub/{user.token}/web")
+        assert res_web.status_code == 200
+        assert "text/html" in res_web.headers.get("content-type", "")
+        assert "<!DOCTYPE html>" in res_web.text
+
+        # 9. Verify build_config includes DNS servers
+        cfg = xray_core.build_config(db)
+        assert "dns" in cfg
+        assert "1.1.1.1" in cfg["dns"]["servers"]
+        assert "8.8.8.8" in cfg["dns"]["servers"]
     finally:
         db.close()
 
